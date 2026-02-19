@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import * 
 import sys
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import *
 import os
 from PyQt6.QtGui import *
 
@@ -24,6 +24,67 @@ class WelcomeScreen(QWidget):
         self.layout.addWidget(self.button)
         self.layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setLayout(self.layout)
+
+class GraphicsView(QGraphicsView):
+    def __init__(self,scene):
+        super().__init__(scene)
+
+        self.start_pos=None
+        self.current_rect=None
+        self.rectangles=[]
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.start_pos = self.mapToScene(event.pos())
+
+    def mouseMoveEvent(self,event):
+        if self.start_pos:
+            end_pos=self.mapToScene(event.pos())
+
+            rect=QRectF(self.start_pos,end_pos).normalized()
+
+            if self.current_rect:
+                self.scene().removeItem(self.current_rect)
+
+            self.current_rect=self.scene().addRect(rect,QPen(Qt.GlobalColor.red,2))
+            
+
+    def mouseReleaseEvent(self,event):
+        if event.button() ==Qt.MouseButton.LeftButton and self.current_rect:
+            self.rectangles.append(self.current_rect)
+            
+            label , ok = QInputDialog.getText(self,"Label","Enter Label: ")
+
+            if ok and label : 
+                rect_geometry = self.current_rect.rect()
+                top_left_scene = self.current_rect.mapToScene(rect_geometry.topLeft())
+
+                text_item = self.scene().addText(label)
+                text_item.setDefaultTextColor(Qt.GlobalColor.darkCyan)
+                text_item.setPos(top_left_scene)
+                self.current_rect.label_item = text_item
+
+            self.current_rect = None
+            self.start_pos=None
+
+   
+             
+    def contextMenuEvent(self, event):
+        item = self.itemAt(event.pos())
+
+        if isinstance(item, QGraphicsRectItem):
+
+            menu = QMenu(self)
+            delete_action = menu.addAction("Delete")
+
+            action = menu.exec(event.globalPos())
+
+            if action == delete_action:
+        
+                if hasattr(item, "label_item"):
+                    self.scene().removeItem(item.label_item)
+                self.scene().removeItem(item)
 
 
 #UPLOAD SCREEN
@@ -52,10 +113,16 @@ class UploadScreen(QWidget):
         self.scroll.setWidget(self.scroll_widget)
         self.scroll.setFrameShape(QFrame.Shape.Box)
 
+        #image view area
+        self.scene = QGraphicsScene()
+        self.view = GraphicsView(self.scene)
+        self.view.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
         # MAIN LAYOUT
         self.layout = QVBoxLayout()
         self.layout.addWidget(self.label)
-        self.layout.addWidget(self.scroll, stretch=1)   
+        self.layout.addWidget(self.view, stretch=4)
+        self.layout.addWidget(self.scroll, stretch=1) 
         self.layout.addWidget(self.button)
         self.setLayout(self.layout)
 
@@ -68,9 +135,26 @@ class UploadScreen(QWidget):
             "",
             "Images (*.png *.jpg *.jpeg)"
         )
-        names = [os.path.basename(f) for f in files]
-        self.label1.setText("\n".join(names))
+        
+        if files : 
+            image_path = files[0]
+            pixmap = QPixmap(image_path)
+            
+            if pixmap.isNull():
+                print("image could not loaded")
+                return
+            self.scene.clear()
+            item = self.scene.addPixmap(pixmap)
+            self.scene.setSceneRect(QRectF(pixmap.rect()))
+            self.view.fitInView(item,Qt.AspectRatioMode.KeepAspectRatio)
+            
+            self.view.setFocus()
+
      
+            
+            names = [os.path.basename(f) for f in files]
+            self.label1.setText("\n".join(names))
+        
 
         
 
