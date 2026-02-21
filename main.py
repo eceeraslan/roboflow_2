@@ -25,6 +25,7 @@ class WelcomeScreen(QWidget):
         self.layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setLayout(self.layout)
 
+
 class GraphicsView(QGraphicsView):
     def __init__(self,scene):
         super().__init__(scene)
@@ -33,43 +34,61 @@ class GraphicsView(QGraphicsView):
         self.current_rect=None
         self.rectangles=[]
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
 
     def mousePressEvent(self, event):
+        item = self.itemAt(event.pos())
+
+        if isinstance(item, QGraphicsRectItem):
+            super().mousePressEvent(event)
+            return
         if event.button() == Qt.MouseButton.LeftButton:
             self.start_pos = self.mapToScene(event.pos())
 
     def mouseMoveEvent(self,event):
-        if self.start_pos:
-            end_pos=self.mapToScene(event.pos())
+        if not self.start_pos:
+            super().mouseMoveEvent(event)
+            return
+        
+        end_pos=self.mapToScene(event.pos())
+        rect=QRectF(self.start_pos,end_pos).normalized()
 
-            rect=QRectF(self.start_pos,end_pos).normalized()
+        if self.current_rect:
+            self.scene().removeItem(self.current_rect)
 
-            if self.current_rect:
-                self.scene().removeItem(self.current_rect)
-
-            self.current_rect=self.scene().addRect(rect,QPen(Qt.GlobalColor.red,2))
+        self.current_rect=self.scene().addRect(rect,QPen(Qt.GlobalColor.red,2,Qt.PenStyle.DashLine))
+        self.current_rect.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable,True)
+        self.current_rect.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable,True)
             
 
     def mouseReleaseEvent(self,event):
-        if event.button() ==Qt.MouseButton.LeftButton and self.current_rect:
+        if not self.start_pos:
+            super().mouseReleaseEvent(event)
+            return
+        
+        if event.button() == Qt.MouseButton.LeftButton and self.current_rect:
+
             self.rectangles.append(self.current_rect)
+
             
-            label , ok = QInputDialog.getText(self,"Label","Enter Label: ")
+            self.current_rect.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+            self.current_rect.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+
+            label, ok = QInputDialog.getText(self, "Label", "Enter Label:")
 
             if ok and label : 
-                rect_geometry = self.current_rect.rect()
-                top_left_scene = self.current_rect.mapToScene(rect_geometry.topLeft())
-
-                text_item = self.scene().addText(label)
+                text_item = QGraphicsTextItem(label, self.current_rect)
                 text_item.setDefaultTextColor(Qt.GlobalColor.darkCyan)
-                text_item.setPos(top_left_scene)
+
+                rect = self.current_rect.rect()
+                text_item.setPos(rect.x(), rect.y() - 20)
+
                 self.current_rect.label_item = text_item
 
             self.current_rect = None
             self.start_pos=None
 
    
-             
     def contextMenuEvent(self, event):
         item = self.itemAt(event.pos())
 
@@ -84,6 +103,8 @@ class GraphicsView(QGraphicsView):
         
                 if hasattr(item, "label_item"):
                     self.scene().removeItem(item.label_item)
+                if item in self.rectangles:
+                    self.rectangles.remove(item)
                 self.scene().removeItem(item)
 
 
@@ -144,20 +165,19 @@ class UploadScreen(QWidget):
                 print("image could not loaded")
                 return
             self.scene.clear()
+            self.view.rectangles.clear()
             item = self.scene.addPixmap(pixmap)
+            
             self.scene.setSceneRect(QRectF(pixmap.rect()))
             self.view.fitInView(item,Qt.AspectRatioMode.KeepAspectRatio)
             
             self.view.setFocus()
-
-     
-            
+ 
             names = [os.path.basename(f) for f in files]
             self.label1.setText("\n".join(names))
         
 
         
-
 #MAIN WINDOW
 class MainWindow(QMainWindow):
     def __init__(self):
