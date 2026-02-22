@@ -112,6 +112,8 @@ class GraphicsView(QGraphicsView):
 class UploadScreen(QWidget):
     def __init__(self):
         super().__init__()
+
+        self.files=[]
         
         #labels
         self.label= QLabel("Upload your images here")
@@ -122,6 +124,7 @@ class UploadScreen(QWidget):
         #buttons
         self.button = QPushButton("Select Images")
         self.button.clicked.connect(self.file_open)
+
        # SCROLL
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -134,19 +137,28 @@ class UploadScreen(QWidget):
         self.scroll.setWidget(self.scroll_widget)
         self.scroll.setFrameShape(QFrame.Shape.Box)
 
+
+        self.list_widget=QListWidget()
+        self.list_widget.setIconSize(QSize(80,80))
+        self.list_widget.setFixedWidth(130)
+        self.list_widget.itemClicked.connect(self.show_image)
+
         #image view area
         self.scene = QGraphicsScene()
         self.view = GraphicsView(self.scene)
         self.view.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # MAIN LAYOUT
-        self.layout = QVBoxLayout()
-        self.layout.addWidget(self.label)
-        self.layout.addWidget(self.view, stretch=4)
-        self.layout.addWidget(self.scroll, stretch=1) 
-        self.layout.addWidget(self.button)
-        self.setLayout(self.layout)
-
+        #LAYOUT
+        right_layout = QVBoxLayout()
+        right_layout.addWidget(self.label)
+        right_layout.addWidget(self.view, stretch=4)
+        right_layout.addWidget(self.scroll, stretch=1)
+        right_layout.addWidget(self.button)
+        
+        main_layout = QHBoxLayout()
+        main_layout.addWidget(self.list_widget)
+        main_layout.addLayout(right_layout)
+        self.setLayout(main_layout)
 
 
     def file_open(self):
@@ -158,24 +170,29 @@ class UploadScreen(QWidget):
         )
         
         if files : 
-            image_path = files[0]
-            pixmap = QPixmap(image_path)
-            
-            if pixmap.isNull():
-                print("image could not loaded")
-                return
-            self.scene.clear()
-            self.view.rectangles.clear()
-            item = self.scene.addPixmap(pixmap)
-            
-            self.scene.setSceneRect(QRectF(pixmap.rect()))
-            self.view.fitInView(item,Qt.AspectRatioMode.KeepAspectRatio)
-            
-            self.view.setFocus()
- 
-            names = [os.path.basename(f) for f in files]
-            self.label1.setText("\n".join(names))
+            self.list_widget.clear()
+            self.files=files
+
+            for f in self.files:
+                pixmap = QPixmap(f)
+                thumbnail = pixmap.scaled(80, 80, Qt.AspectRatioMode.KeepAspectRatio)
+                icon = QIcon(thumbnail)
+                item =QListWidgetItem(icon, "")
+                item.setData(Qt.ItemDataRole.UserRole,f)
+                self.list_widget.addItem(item)
+
+            self.list_widget.setCurrentRow(0)
+            self.show_image(self.list_widget.item(0))
+
+    def show_image(self,item):
+        image_path = item.data(Qt.ItemDataRole.UserRole)
+        pix_map=QPixmap(image_path)
+        self.scene.clear()
+        self.view.rectangles.clear()
+        new_scene = self.scene.addPixmap(pix_map)
+        self.view.fitInView(new_scene,Qt.AspectRatioMode.KeepAspectRatio)
         
+    
 
         
 #MAIN WINDOW
