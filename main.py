@@ -60,33 +60,32 @@ class GraphicsView(QGraphicsView):
         self.current_rect.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable,True)
         self.current_rect.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable,True)
             
-
-    def mouseReleaseEvent(self,event):
+    def mouseReleaseEvent(self, event):
         if not self.start_pos:
             super().mouseReleaseEvent(event)
             return
         
         if event.button() == Qt.MouseButton.LeftButton and self.current_rect:
 
-            self.rectangles.append(self.current_rect)
-
-            
             self.current_rect.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
             self.current_rect.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
 
             label, ok = QInputDialog.getText(self, "Label", "Enter Label:")
 
-            if ok and label : 
+            if ok and label:
                 text_item = QGraphicsTextItem(label, self.current_rect)
                 text_item.setDefaultTextColor(Qt.GlobalColor.darkCyan)
-
                 rect = self.current_rect.rect()
                 text_item.setPos(rect.x(), rect.y() - 20)
-
                 self.current_rect.label_item = text_item
 
+            self.rectangles.append({
+                "rect": self.current_rect.rect(),
+                "label": label if ok and label else ""
+            })
+
             self.current_rect = None
-            self.start_pos=None
+            self.start_pos = None
 
    
     def contextMenuEvent(self, event):
@@ -100,11 +99,9 @@ class GraphicsView(QGraphicsView):
             action = menu.exec(event.globalPos())
 
             if action == delete_action:
-        
                 if hasattr(item, "label_item"):
                     self.scene().removeItem(item.label_item)
-                if item in self.rectangles:
-                    self.rectangles.remove(item)
+                self.rectangles = [r for r in self.rectangles if r["rect"] != item.rect()]
                 self.scene().removeItem(item)
 
 
@@ -114,6 +111,8 @@ class UploadScreen(QWidget):
         super().__init__()
 
         self.files=[]
+        self.boxes={}
+        self.current_image=None
         
         #labels
         self.label= QLabel("Upload your images here")
@@ -184,16 +183,33 @@ class UploadScreen(QWidget):
             self.list_widget.setCurrentRow(0)
             self.show_image(self.list_widget.item(0))
 
-    def show_image(self,item):
+    def show_image(self, item):
         image_path = item.data(Qt.ItemDataRole.UserRole)
-        pix_map=QPixmap(image_path)
-        self.scene.clear()
-        self.view.rectangles.clear()
-        new_scene = self.scene.addPixmap(pix_map)
-        self.view.fitInView(new_scene,Qt.AspectRatioMode.KeepAspectRatio)
-        
-    
+        pix_map = QPixmap(image_path)
 
+        if self.current_image:
+            self.boxes[self.current_image] = self.view.rectangles.copy()
+
+        self.scene.clear()
+        self.current_image = image_path
+        self.view.rectangles = []
+
+        new_scene = self.scene.addPixmap(pix_map)
+        self.view.fitInView(new_scene, Qt.AspectRatioMode.KeepAspectRatio)
+
+        if image_path in self.boxes:
+            for box_data in self.boxes[image_path]:
+                rect = box_data["rect"]
+                label = box_data["label"]
+                new_box = self.scene.addRect(rect, QPen(Qt.GlobalColor.red, 2, Qt.PenStyle.DashLine))
+                new_box.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+                new_box.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+                if label:
+                    text_item = QGraphicsTextItem(label, new_box)
+                    text_item.setDefaultTextColor(Qt.GlobalColor.darkCyan)
+                    text_item.setPos(rect.x(), rect.y() - 20)
+                    new_box.label_item = text_item
+                self.view.rectangles.append({"rect": rect, "label": label})
         
 #MAIN WINDOW
 class MainWindow(QMainWindow):
