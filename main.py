@@ -3,6 +3,7 @@ import sys
 from PyQt6.QtCore import *
 import os
 from PyQt6.QtGui import *
+import shutil
 
 
 #WELCOME SCREEN
@@ -233,12 +234,83 @@ class MainWindow(QMainWindow):
     
     def show_upload(self):
         self.stack.setCurrentWidget(self.upload)
+        self.file_menu.menuAction().setVisible(True)
 
+    def export_yolo(self):
+        folder = QFileDialog.getExistingDirectory(self,"Select export folder")
+        if not folder:
+            return
+        
+        images_dir=os.path.join(folder,"images")
+        labels_dir=os.path.join(folder , "labels")
+        os.makedirs(images_dir,exist_ok=True)
+        os.makedirs(labels_dir,exist_ok=True)
+
+        if self.upload.current_image:
+            self.upload.boxes[self.upload.current_image] = self.upload.view.rectangles.copy()
+
+        all_labels = []
+        for box_list in self.upload.boxes.values():
+            for box_data in box_list:
+                if box_data["label"] and box_data["label"] not in all_labels:
+                    all_labels.append(box_data["label"])
+
+        for image_path , box_list in self.upload.boxes.items():
+            if not box_list:
+                continue
+
+            image_name=os.path.basename(image_path)
+            shutil.copy(image_path , os.path.join(images_dir,image_name))
+
+            img = QPixmap(image_path)
+            img_width=img.width()
+            img_height = img.height()
+
+            txt_name=os.path.splitext(image_name)[0] + ".txt"
+            txt_path=os.path.join(labels_dir, txt_name)
+
+            with open(txt_path,"w") as f :
+                for box_data in box_list:
+                    rect=box_data["rect"]
+                    label=box_data["label"]
+
+                    x = rect.x()
+                    y = rect.y()
+                    w = rect.width()
+                    h = rect.height()
+
+                    cx = (x + w / 2) / img_width
+                    cy = (y + h / 2) / img_height
+                    nw = w / img_width
+                    nh = h / img_height
+
+                    class_id = all_labels.index(label)
+                    f.write(f"{class_id} {cx:.6f} {cy:.6f} {nw:.6f} {nh:.6f}\n")
+
+        classes_path = os.path.join(folder, "classes.txt")
+        with open(classes_path, "w") as f:
+            for label in all_labels:
+                f.write(label + "\n")
+
+            try:
+                QMessageBox.information(self,"Success", "Export completed successfully!")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Export failed: {str(e)}")
+
+
+        
 
     def create_menu(self):
-        menu_bar = self.menuBar()
         
-        file_menu=menu_bar.addMenu("Annota")
+        self.menu_bar = self.menuBar()
+        
+        self.file_menu=self.menu_bar.addMenu("Export")
+        self.file_menu.menuAction().setVisible(False)
+        
+
+        export_action =QAction("Export as YOLO", self)
+        export_action.triggered.connect(self.export_yolo)
+        self.file_menu.addAction(export_action)
 
         
 
