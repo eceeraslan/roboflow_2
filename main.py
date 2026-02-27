@@ -4,7 +4,7 @@ from PyQt6.QtCore import *
 import os
 from PyQt6.QtGui import *
 import shutil
-
+import json
 
 #WELCOME SCREEN
 class WelcomeScreen(QWidget):
@@ -235,6 +235,7 @@ class MainWindow(QMainWindow):
     def show_upload(self):
         self.stack.setCurrentWidget(self.upload)
         self.file_menu.menuAction().setVisible(True)
+        self.export_menu.menuAction().setVisible(True)
 
     def export_yolo(self):
         folder = QFileDialog.getExistingDirectory(self,"Select export folder")
@@ -274,6 +275,9 @@ class MainWindow(QMainWindow):
                     rect=box_data["rect"]
                     label=box_data["label"]
 
+                    if not label:
+                        continue
+
                     x = rect.x()
                     y = rect.y()
                     w = rect.width()
@@ -292,27 +296,96 @@ class MainWindow(QMainWindow):
             for label in all_labels:
                 f.write(label + "\n")
 
-            try:
-                QMessageBox.information(self,"Success", "Export completed successfully!")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Export failed: {str(e)}")
+        try:
+            QMessageBox.information(self,"Success", "Export completed successfully!")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Export failed: {str(e)}")
 
+    
+    def save_project(self):
+        file_path,_=QFileDialog.getSaveFileName(self,"Save Project","","JSON Files (*.json)")
+        if not file_path:
+            return
+        if self.upload.current_image:
+            self.upload.boxes[self.upload.current_image]=self.upload.view.rectangles.copy()
 
+        data={  "files": self.upload.files,
+                "boxes": {}                 }
+
+        for image_path, box_list in self.upload.boxes.items():
+            data["boxes"][image_path] = []
+            for box_data in box_list:
+                rect = box_data["rect"]
+                data["boxes"][image_path].append({
+                    "x": rect.x(),
+                    "y": rect.y(),
+                    "w": rect.width(),
+                    "h": rect.height(),
+                    "label": box_data["label"]
+                })
+        with open(file_path,"w") as f:
+            json.dump(data,f)
+
+        QMessageBox.information(self,"Success","Project saved successfuully!")
+
+    def load_project(self):
+        file_path,_=QFileDialog.getOpenFileName(self,"Load Project","","JSON Files (*.json)")
+        if not file_path:
+            return
+        with open(file_path,"r") as f:
+            data = json.load(f)
         
+        self.upload.boxes = {}
+
+        for image_path, box_list in data["boxes"].items():
+            self.upload.boxes[image_path] = []
+            for box_data in box_list:
+                rect = QRectF(box_data["x"], box_data["y"], box_data["w"], box_data["h"])
+                self.upload.boxes[image_path].append({
+                    "rect": rect,
+                    "label": box_data["label"]
+                })
+
+        self.upload.files = data["files"]
+        
+        self.upload.list_widget.clear()
+        
+        for f in self.upload.files:
+            pixmap = QPixmap(f)
+            thumbnail = pixmap.scaled(80, 80, Qt.AspectRatioMode.KeepAspectRatio)
+            icon = QIcon(thumbnail)
+            item = QListWidgetItem(icon, "")
+            item.setData(Qt.ItemDataRole.UserRole, f)
+            self.upload.list_widget.addItem(item)
+        
+        self.upload.list_widget.setCurrentRow(0)
+        self.upload.show_image(self.upload.list_widget.item(0))
+
+
 
     def create_menu(self):
         
         self.menu_bar = self.menuBar()
         
-        self.file_menu=self.menu_bar.addMenu("Export")
+        self.file_menu=self.menu_bar.addMenu("File")
         self.file_menu.menuAction().setVisible(False)
+
+        save_action =QAction("Save",self)
+        save_action.triggered.connect(self.save_project)
+        self.file_menu.addAction(save_action)
         
+        load_action =QAction("Load",self)
+        load_action.triggered.connect(self.load_project)
+        self.file_menu.addAction(load_action)
+
+        self.export_menu=self.menu_bar.addMenu("Export")
+        self.export_menu.menuAction().setVisible(False)
 
         export_action =QAction("Export as YOLO", self)
         export_action.triggered.connect(self.export_yolo)
-        self.file_menu.addAction(export_action)
+        self.export_menu.addAction(export_action)
 
-        
+
 
 if __name__ =="__main__":
     app = QApplication(sys.argv)
