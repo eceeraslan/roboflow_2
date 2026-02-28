@@ -28,14 +28,18 @@ class WelcomeScreen(QWidget):
 
 
 class GraphicsView(QGraphicsView):
-    def __init__(self,scene):
+    def __init__(self,scene,upload_screen):
         super().__init__(scene)
 
+        self.upload_screen=upload_screen
         self.start_pos=None
         self.current_rect=None
         self.rectangles=[]
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
 
     def mousePressEvent(self, event):
         item = self.itemAt(event.pos())
@@ -46,20 +50,27 @@ class GraphicsView(QGraphicsView):
         if event.button() == Qt.MouseButton.LeftButton:
             self.start_pos = self.mapToScene(event.pos())
 
-    def mouseMoveEvent(self,event):
+
+    def mouseMoveEvent(self, event):
         if not self.start_pos:
             super().mouseMoveEvent(event)
             return
         
-        end_pos=self.mapToScene(event.pos())
-        rect=QRectF(self.start_pos,end_pos).normalized()
+        end_pos = self.mapToScene(event.pos())
+        
+        scene_rect = self.scene().sceneRect()
+        end_pos.setX(max(scene_rect.left(), min(end_pos.x(), scene_rect.right())))
+        end_pos.setY(max(scene_rect.top(), min(end_pos.y(), scene_rect.bottom())))
+        
+        rect = QRectF(self.start_pos, end_pos).normalized()
 
         if self.current_rect:
             self.scene().removeItem(self.current_rect)
 
-        self.current_rect=self.scene().addRect(rect,QPen(Qt.GlobalColor.red,2,Qt.PenStyle.DashLine))
-        self.current_rect.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable,True)
-        self.current_rect.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable,True)
+        self.current_rect = self.scene().addRect(rect, QPen(Qt.GlobalColor.red, 2, Qt.PenStyle.DashLine))
+        self.current_rect.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+        self.current_rect.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        event.accept()
             
     def mouseReleaseEvent(self, event):
         if not self.start_pos:
@@ -105,6 +116,34 @@ class GraphicsView(QGraphicsView):
                 self.rectangles = [r for r in self.rectangles if r["rect"] != item.rect()]
                 self.scene().removeItem(item)
 
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Down:
+            count = self.upload_screen.list_widget.count()
+            index = self.upload_screen.list_widget.currentRow()
+            next_index = index + 1
+            if next_index >= count:
+                return
+            next_item = self.upload_screen.list_widget.item(next_index)
+            self.upload_screen.list_widget.setCurrentRow(next_index)
+            self.upload_screen.show_image(next_item)
+
+                    
+        elif event.key() == Qt.Key.Key_Up:
+            index=self.upload_screen.list_widget.currentRow()
+            next_index=index-1
+            next_item=self.upload_screen.list_widget.item(next_index)
+            if next_index < 0:
+                return
+            self.upload_screen.list_widget.setCurrentRow(next_index)
+            self.upload_screen.show_image(next_item)
+
+        elif event.key() == Qt.Key.Key_Delete or event.key() == Qt.Key.Key_Backspace:
+            for item in self.scene().selectedItems():
+                self.scene().removeItem(item)
+                self.rectangles = [r for r in self.rectangles if r["rect"] != item.rect()]
+
+
+
 
 #UPLOAD SCREEN
 class UploadScreen(QWidget):
@@ -145,7 +184,7 @@ class UploadScreen(QWidget):
 
         #image view area
         self.scene = QGraphicsScene()
-        self.view = GraphicsView(self.scene)
+        self.view = GraphicsView(self.scene,self)
         self.view.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         #LAYOUT
@@ -182,7 +221,7 @@ class UploadScreen(QWidget):
                 self.list_widget.addItem(item)
 
             self.list_widget.setCurrentRow(0)
-            self.show_image(self.list_widget.item(0))
+            QTimer.singleShot(0, lambda: self.show_image(self.list_widget.item(0)))
 
     def show_image(self, item):
         image_path = item.data(Qt.ItemDataRole.UserRole)
@@ -196,6 +235,7 @@ class UploadScreen(QWidget):
         self.view.rectangles = []
 
         new_scene = self.scene.addPixmap(pix_map)
+        self.scene.setSceneRect(new_scene.boundingRect())
         self.view.fitInView(new_scene, Qt.AspectRatioMode.KeepAspectRatio)
 
         if image_path in self.boxes:
@@ -211,6 +251,9 @@ class UploadScreen(QWidget):
                     text_item.setPos(rect.x(), rect.y() - 20)
                     new_box.label_item = text_item
                 self.view.rectangles.append({"rect": rect, "label": label})
+        
+        self.view.setFocus()
+
         
 #MAIN WINDOW
 class MainWindow(QMainWindow):
@@ -360,8 +403,6 @@ class MainWindow(QMainWindow):
         
         self.upload.list_widget.setCurrentRow(0)
         self.upload.show_image(self.upload.list_widget.item(0))
-
-
 
     def create_menu(self):
         
