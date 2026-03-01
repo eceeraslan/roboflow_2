@@ -96,6 +96,8 @@ class GraphicsView(QGraphicsView):
                 "label": label if ok and label else ""
             })
 
+            self.upload_screen.label_list.addItem(label)
+
             self.current_rect = None
             self.start_pos = None
 
@@ -115,7 +117,11 @@ class GraphicsView(QGraphicsView):
                     self.scene().removeItem(item.label_item)
                 self.rectangles = [r for r in self.rectangles if r["rect"] != item.rect()]
                 self.scene().removeItem(item)
+                self.upload_screen.label_list.clear()
+                for box_data in self.rectangles:
+                    self.upload_screen.label_list.addItem(box_data["label"])
 
+    
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Down:
             count = self.upload_screen.list_widget.count()
@@ -141,8 +147,20 @@ class GraphicsView(QGraphicsView):
             for item in self.scene().selectedItems():
                 self.scene().removeItem(item)
                 self.rectangles = [r for r in self.rectangles if r["rect"] != item.rect()]
+            self.upload_screen.label_list.clear()
+            for box_data in self.rectangles:
+                self.upload_screen.label_list.addItem(box_data["label"])
 
 
+
+    def wheelEvent(self, event):
+        
+        if event.angleDelta().y() > 0 :
+            self.scale(1.1,1.1)
+        
+        elif event.angleDelta().y() < 0 :
+            self.scale(0.9,0.9)
+        
 
 
 #UPLOAD SCREEN
@@ -182,6 +200,12 @@ class UploadScreen(QWidget):
         self.list_widget.setFixedWidth(130)
         self.list_widget.itemClicked.connect(self.show_image)
 
+
+        #label list area
+        self.label_list=QListWidget()
+        self.label_list.setFixedWidth(180)
+        
+
         #image view area
         self.scene = QGraphicsScene()
         self.view = GraphicsView(self.scene,self)
@@ -197,6 +221,7 @@ class UploadScreen(QWidget):
         main_layout = QHBoxLayout()
         main_layout.addWidget(self.list_widget)
         main_layout.addLayout(right_layout)
+        main_layout.addWidget(self.label_list)
         self.setLayout(main_layout)
 
 
@@ -224,6 +249,7 @@ class UploadScreen(QWidget):
             QTimer.singleShot(0, lambda: self.show_image(self.list_widget.item(0)))
 
     def show_image(self, item):
+        self.label_list.clear()
         image_path = item.data(Qt.ItemDataRole.UserRole)
         pix_map = QPixmap(image_path)
 
@@ -237,11 +263,13 @@ class UploadScreen(QWidget):
         new_scene = self.scene.addPixmap(pix_map)
         self.scene.setSceneRect(new_scene.boundingRect())
         self.view.fitInView(new_scene, Qt.AspectRatioMode.KeepAspectRatio)
+        
 
         if image_path in self.boxes:
             for box_data in self.boxes[image_path]:
                 rect = box_data["rect"]
                 label = box_data["label"]
+                self.label_list.addItem(label)
                 new_box = self.scene.addRect(rect, QPen(Qt.GlobalColor.red, 2, Qt.PenStyle.DashLine))
                 new_box.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
                 new_box.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
@@ -338,6 +366,13 @@ class MainWindow(QMainWindow):
         with open(classes_path, "w") as f:
             for label in all_labels:
                 f.write(label + "\n")
+
+        yaml_path = os.path.join(folder, "data.yaml")
+        with open(yaml_path, "w") as f:
+            f.write(f"nc: {len(all_labels)}\n")
+            f.write(f"names: {all_labels}\n")
+            f.write(f"train: images/\n")
+            f.write(f"val: images/\n")
 
         try:
             QMessageBox.information(self,"Success", "Export completed successfully!")
