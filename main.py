@@ -5,6 +5,7 @@ import os
 from PyQt6.QtGui import *
 import shutil
 import json
+import random
 
 #WELCOME SCREEN
 class WelcomeScreen(QWidget):
@@ -82,7 +83,14 @@ class GraphicsView(QGraphicsView):
             self.current_rect.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
             self.current_rect.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
 
-            label, ok = QInputDialog.getText(self, "Label", "Enter Label:")
+            if not self.upload_screen.classes:
+                QMessageBox.warning(self, "Uyarı", "First add class please!")
+                self.scene().removeItem(self.current_rect)
+                self.current_rect = None
+                self.start_pos = None
+                return
+
+            label, ok = QInputDialog.getItem(self, "Label", "Choose Class:", self.upload_screen.classes, 0, False)
 
             if ok and label:
                 text_item = QGraphicsTextItem(label, self.current_rect)
@@ -171,6 +179,8 @@ class UploadScreen(QWidget):
         self.files=[]
         self.boxes={}
         self.current_image=None
+
+        self.classes=[]
         
         #labels
         self.label= QLabel("Upload your images here")
@@ -181,6 +191,9 @@ class UploadScreen(QWidget):
         #buttons
         self.button = QPushButton("Select Images")
         self.button.clicked.connect(self.file_open)
+        self.add_button = QPushButton("Add Class")
+        self.add_button.clicked.connect(self.add_class)
+        
 
        # SCROLL
         self.scroll = QScrollArea()
@@ -205,12 +218,25 @@ class UploadScreen(QWidget):
         self.label_list=QListWidget()
         self.label_list.setFixedWidth(180)
         
+        self.class_list = QListWidget()
+        self.class_list.setFixedWidth(180)
+    
+        
 
         #image view area
         self.scene = QGraphicsScene()
         self.view = GraphicsView(self.scene,self)
         self.view.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
+
+        #right panel
+        right_panel = QVBoxLayout()
+        right_panel.addWidget(QLabel("Classes:"))
+        right_panel.addWidget(self.add_button)
+        right_panel.addWidget(self.class_list)
+        right_panel.addWidget(QLabel("Annotations:"))
+        right_panel.addWidget(self.label_list)
+        
         #LAYOUT
         right_layout = QVBoxLayout()
         right_layout.addWidget(self.label)
@@ -221,7 +247,7 @@ class UploadScreen(QWidget):
         main_layout = QHBoxLayout()
         main_layout.addWidget(self.list_widget)
         main_layout.addLayout(right_layout)
-        main_layout.addWidget(self.label_list)
+        main_layout.addLayout(right_panel)
         self.setLayout(main_layout)
 
 
@@ -247,6 +273,14 @@ class UploadScreen(QWidget):
 
             self.list_widget.setCurrentRow(0)
             QTimer.singleShot(0, lambda: self.show_image(self.list_widget.item(0)))
+
+        
+    def add_class(self):
+        label, ok = QInputDialog.getText(self, "Label", "Enter Label:")
+        if ok and label:
+            self.classes.append(label)
+            self.class_list.addItem(label)
+
 
     def show_image(self, item):
         self.label_list.clear()
@@ -309,14 +343,27 @@ class MainWindow(QMainWindow):
         self.export_menu.menuAction().setVisible(True)
 
     def export_yolo(self):
+
+        files =self.upload.files.copy()
+        random.shuffle(files)
+
+        total = len(files)
+        train_count=int(total * 0.7)
+        val_count = int(total * 0.2)
+
+
+        train_files = files[:train_count]
+        val_files = files[train_count:train_count + val_count]
+        test_files = files[train_count + val_count:]
+
+
         folder = QFileDialog.getExistingDirectory(self,"Select export folder")
         if not folder:
             return
         
-        images_dir=os.path.join(folder,"images")
-        labels_dir=os.path.join(folder , "labels")
-        os.makedirs(images_dir,exist_ok=True)
-        os.makedirs(labels_dir,exist_ok=True)
+        for split in["train","val","test"]:
+            os.makedirs(os.path.join(folder, split, "images"), exist_ok=True)
+            os.makedirs(os.path.join(folder, split, "labels"), exist_ok=True)
 
         if self.upload.current_image:
             self.upload.boxes[self.upload.current_image] = self.upload.view.rectangles.copy()
@@ -327,24 +374,34 @@ class MainWindow(QMainWindow):
                 if box_data["label"] and box_data["label"] not in all_labels:
                     all_labels.append(box_data["label"])
 
-        for image_path , box_list in self.upload.boxes.items():
+        for image_path, box_list in self.upload.boxes.items():
             if not box_list:
                 continue
 
-            image_name=os.path.basename(image_path)
-            shutil.copy(image_path , os.path.join(images_dir,image_name))
+            if image_path in train_files:
+                split = "train"
+            elif image_path in val_files:
+                split = "val"
+            else:
+                split = "test"
+
+            images_dir = os.path.join(folder, split, "images")
+            labels_dir = os.path.join(folder, split, "labels")
+
+            image_name = os.path.basename(image_path)
+            shutil.copy(image_path, os.path.join(images_dir, image_name))
 
             img = QPixmap(image_path)
-            img_width=img.width()
+            img_width = img.width()
             img_height = img.height()
 
-            txt_name=os.path.splitext(image_name)[0] + ".txt"
-            txt_path=os.path.join(labels_dir, txt_name)
+            txt_name = os.path.splitext(image_name)[0] + ".txt"
+            txt_path = os.path.join(labels_dir, txt_name)
 
-            with open(txt_path,"w") as f :
+            with open(txt_path, "w") as f:
                 for box_data in box_list:
-                    rect=box_data["rect"]
-                    label=box_data["label"]
+                    rect = box_data["rect"]
+                    label = box_data["label"]
 
                     if not label:
                         continue
@@ -371,8 +428,9 @@ class MainWindow(QMainWindow):
         with open(yaml_path, "w") as f:
             f.write(f"nc: {len(all_labels)}\n")
             f.write(f"names: {all_labels}\n")
-            f.write(f"train: images/\n")
-            f.write(f"val: images/\n")
+            f.write(f"train: train/images/\n")
+            f.write(f"val: val/images/\n")
+            f.write(f"test: test/images/\n")
 
         try:
             QMessageBox.information(self,"Success", "Export completed successfully!")
@@ -388,6 +446,7 @@ class MainWindow(QMainWindow):
             self.upload.boxes[self.upload.current_image]=self.upload.view.rectangles.copy()
 
         data={  "files": self.upload.files,
+                "classes": self.upload.classes,
                 "boxes": {}                 }
 
         for image_path, box_list in self.upload.boxes.items():
@@ -425,6 +484,9 @@ class MainWindow(QMainWindow):
                 })
 
         self.upload.files = data["files"]
+        self.upload.classes = data["classes"]
+        for c in data["classes"]:
+            self.upload.class_list.addItem(c)
         
         self.upload.list_widget.clear()
         
