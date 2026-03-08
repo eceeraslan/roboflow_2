@@ -36,6 +36,10 @@ class GraphicsView(QGraphicsView):
         self.start_pos=None
         self.current_rect=None
         self.rectangles=[]
+        self.current_tool="bbox"
+        self.history=[]
+        self.redo_stack = []
+        
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -43,6 +47,11 @@ class GraphicsView(QGraphicsView):
 
 
     def mousePressEvent(self, event):
+
+        if self.current_tool =="select" :
+            super().mousePressEvent(event)
+            return
+        
         item = self.itemAt(event.pos())
 
         if isinstance(item, QGraphicsRectItem):
@@ -53,6 +62,11 @@ class GraphicsView(QGraphicsView):
 
 
     def mouseMoveEvent(self, event):
+        
+        if self.current_tool == "select":
+            super().mouseMoveEvent(event)
+            return
+        
         if not self.start_pos:
             super().mouseMoveEvent(event)
             return
@@ -74,6 +88,11 @@ class GraphicsView(QGraphicsView):
         event.accept()
             
     def mouseReleaseEvent(self, event):
+
+        if self.current_tool == "select":
+            super().mouseReleaseEvent(event)
+            return
+        
         if not self.start_pos:
             super().mouseReleaseEvent(event)
             return
@@ -106,6 +125,8 @@ class GraphicsView(QGraphicsView):
 
             self.upload_screen.label_list.addItem(label)
 
+            self.history.append(self.rectangles.copy())
+
             self.current_rect = None
             self.start_pos = None
 
@@ -128,6 +149,68 @@ class GraphicsView(QGraphicsView):
                 self.upload_screen.label_list.clear()
                 for box_data in self.rectangles:
                     self.upload_screen.label_list.addItem(box_data["label"])
+
+    def undo(self):
+        if not self.history:
+            return
+        
+        self.history.pop()
+        self.redo_stack.append(self.rectangles.copy())
+        
+        if self.history:
+            self.rectangles = self.history[-1].copy()
+        else:
+            self.rectangles = []
+        
+        self.scene().clear()
+        self.upload_screen.label_list.clear()
+        
+        pixmap = QPixmap(self.upload_screen.current_image)
+        new_scene = self.scene().addPixmap(pixmap)
+        self.scene().setSceneRect(new_scene.boundingRect())
+        self.fitInView(new_scene, Qt.AspectRatioMode.KeepAspectRatio)
+        
+        for box_data in self.rectangles:
+            rect = box_data["rect"]
+            label = box_data["label"]
+            self.upload_screen.label_list.addItem(label)
+            new_box = self.scene().addRect(rect, QPen(Qt.GlobalColor.red, 2, Qt.PenStyle.DashLine))
+            new_box.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+            new_box.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+            if label:
+                text_item = QGraphicsTextItem(label, new_box)
+                text_item.setDefaultTextColor(Qt.GlobalColor.darkCyan)
+                text_item.setPos(rect.x(), rect.y() - 20)
+                new_box.label_item = text_item
+
+    def redo(self):
+        if not self.redo_stack:
+            return
+        
+        state = self.redo_stack.pop()
+        self.rectangles = state.copy()
+        self.history.append(state.copy())
+        
+        self.scene().clear()
+        self.upload_screen.label_list.clear()
+        
+        pixmap = QPixmap(self.upload_screen.current_image)
+        new_scene = self.scene().addPixmap(pixmap)
+        self.scene().setSceneRect(new_scene.boundingRect())
+        self.fitInView(new_scene, Qt.AspectRatioMode.KeepAspectRatio)
+        
+        for box_data in self.rectangles:
+            rect = box_data["rect"]
+            label = box_data["label"]
+            self.upload_screen.label_list.addItem(label)
+            new_box = self.scene().addRect(rect, QPen(Qt.GlobalColor.red, 2, Qt.PenStyle.DashLine))
+            new_box.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+            new_box.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+            if label:
+                text_item = QGraphicsTextItem(label, new_box)
+                text_item.setDefaultTextColor(Qt.GlobalColor.darkCyan)
+                text_item.setPos(rect.x(), rect.y() - 20)
+                new_box.label_item = text_item
 
     
     def keyPressEvent(self, event):
@@ -159,6 +242,11 @@ class GraphicsView(QGraphicsView):
             for box_data in self.rectangles:
                 self.upload_screen.label_list.addItem(box_data["label"])
 
+        elif event.key() == Qt.Key.Key_Z and event.modifiers() == Qt.KeyboardModifier.ControlModifier:
+            self.undo()
+
+        elif event.key() == Qt.Key.Key_Y and event.modifiers() == Qt.KeyboardModifier.ControlModifier:
+            self.redo()
 
 
     def wheelEvent(self, event):
@@ -178,6 +266,7 @@ class UploadScreen(QWidget):
 
         self.files=[]
         self.boxes={}
+        self.boxes_history = {}
         self.current_image=None
 
         self.classes=[]
@@ -194,7 +283,7 @@ class UploadScreen(QWidget):
         self.add_button = QPushButton("Add Class")
         self.add_button.clicked.connect(self.add_class)
         
-
+        
        # SCROLL
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -220,13 +309,41 @@ class UploadScreen(QWidget):
         
         self.class_list = QListWidget()
         self.class_list.setFixedWidth(180)
-    
         
-
         #image view area
         self.scene = QGraphicsScene()
         self.view = GraphicsView(self.scene,self)
         self.view.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        #toolbar
+        self.toolbar = QWidget()
+        self.toolbar_layout =QVBoxLayout(self.toolbar)
+        self.toolbar_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.toolbar.setFixedWidth(40)
+
+        self.btn_select = QPushButton("🖱")
+        self.btn_bbox =QPushButton("⬜")
+
+        self.btn_select.setFixedSize(30,30)
+        self.btn_bbox.setFixedSize(30,30)
+
+        self.btn_select.clicked.connect(self.set_select)
+        self.btn_bbox.clicked.connect(self.set_bbox)
+
+        self.btn_undo=QPushButton("↩")
+        self.btn_redo = QPushButton("↪")
+        
+        self.btn_undo.setFixedSize(30,30)
+        self.btn_redo.setFixedSize(30,30)
+        
+        self.btn_undo.clicked.connect(self.view.undo)
+        self.btn_redo.clicked.connect(self.view.redo)
+
+        self.toolbar_layout.addWidget(self.btn_select)
+        self.toolbar_layout.addWidget(self.btn_bbox)
+        self.toolbar_layout.addWidget(self.btn_undo)
+        self.toolbar_layout.addWidget(self.btn_redo)
+
 
 
         #right panel
@@ -247,7 +364,9 @@ class UploadScreen(QWidget):
         main_layout = QHBoxLayout()
         main_layout.addWidget(self.list_widget)
         main_layout.addLayout(right_layout)
+        main_layout.addWidget(self.toolbar)
         main_layout.addLayout(right_panel)
+
         self.setLayout(main_layout)
 
 
@@ -279,7 +398,37 @@ class UploadScreen(QWidget):
         label, ok = QInputDialog.getText(self, "Label", "Enter Label:")
         if ok and label:
             self.classes.append(label)
-            self.class_list.addItem(label)
+            
+
+            item =QListWidgetItem(self.class_list)
+            widget=QWidget()
+            layout=QHBoxLayout(widget)
+
+            text_label =QLabel(label)
+            delete_btn =QPushButton("x")
+            delete_btn.setFixedSize(20,20)
+            delete_btn.clicked.connect(lambda: self.remove_class(item,label))
+
+            layout.addWidget(text_label)
+            layout.addWidget(delete_btn)
+
+            item.setSizeHint(widget.sizeHint())
+            self.class_list.setItemWidget(item,widget)
+
+    def remove_class(self,item,label):
+        row = self.class_list.row(item)
+        self.class_list.takeItem(row)
+        self.classes.remove(label)
+
+    def set_select(self):
+        self.view.current_tool = "select"
+        self.btn_select.setStyleSheet("background-color: rgba(0, 120, 255, 0.3);")
+        self.btn_bbox.setStyleSheet("")
+
+    def set_bbox(self):
+        self.view.current_tool = "bbox"
+        self.btn_bbox.setStyleSheet("background-color: rgba(0,120,255,0.3)")
+        self.btn_select.setStyleSheet("")
 
 
     def show_image(self, item):
@@ -289,10 +438,12 @@ class UploadScreen(QWidget):
 
         if self.current_image:
             self.boxes[self.current_image] = self.view.rectangles.copy()
+            self.boxes_history[self.current_image] = self.view.history.copy()
 
         self.scene.clear()
         self.current_image = image_path
         self.view.rectangles = []
+        self.view.history = self.boxes_history.get(image_path, [])
 
         new_scene = self.scene.addPixmap(pix_map)
         self.scene.setSceneRect(new_scene.boundingRect())
