@@ -39,22 +39,37 @@ class GraphicsView(QGraphicsView):
         self.current_tool="bbox"
         self.history=[]
         self.redo_stack = []
+        self.polygon_points=[]
+        self.current_polygon = None
+        self.min_zoom = 1.0
         
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
 
     def mousePressEvent(self, event):
+        
+
+        if event.button() == Qt.MouseButton.RightButton:
+            super().mousePressEvent(event)
+            return
 
         if self.current_tool =="select" :
             super().mousePressEvent(event)
             return
+
+        if self.current_tool =="freehand":
+            self.polygon_points=[]
+            self.start_pos = None
+            self.start_pos = self.mapToScene(event.pos())
+            self.polygon_points.append(self.start_pos)  
+            return
         
         item = self.itemAt(event.pos())
 
-        if isinstance(item, QGraphicsRectItem):
+        if isinstance(item, (QGraphicsRectItem, QGraphicsPolygonItem, QGraphicsTextItem)):
             super().mousePressEvent(event)
             return
         if event.button() == Qt.MouseButton.LeftButton:
@@ -67,6 +82,21 @@ class GraphicsView(QGraphicsView):
             super().mouseMoveEvent(event)
             return
         
+        if self.current_tool == "freehand" and self.polygon_points:
+            pos = self.mapToScene(event.pos())
+            self.polygon_points.append(pos)
+
+            if self.current_polygon:
+                self.scene().removeItem(self.current_polygon)
+
+            polygon =   QPolygonF(self.polygon_points)
+            self.current_polygon = self.scene().addPolygon(
+                polygon ,
+                QPen(Qt.GlobalColor.red, 2),
+                QBrush(QColor(255, 0, 0, 50))
+            )
+            return
+
         if not self.start_pos:
             super().mouseMoveEvent(event)
             return
@@ -92,6 +122,45 @@ class GraphicsView(QGraphicsView):
         if self.current_tool == "select":
             super().mouseReleaseEvent(event)
             return
+        
+        if self.current_tool == "freehand" and self.polygon_points:
+            if self.current_polygon:
+                self.scene().removeItem(self.current_polygon)
+            
+            if not self.upload_screen.classes:
+                QMessageBox.warning(self, "Uyarı", "First add class please!")
+                self.polygon_points = []
+                self.current_polygon = None
+                return
+            
+            label, ok = QInputDialog.getItem(self, "Label", "Choose Class:", self.upload_screen.classes, 0, False)
+            
+            if ok and label:
+                polygon = QPolygonF(self.polygon_points)
+                item = self.scene().addPolygon(
+                    polygon,
+                    QPen(Qt.GlobalColor.red, 2),
+                    QBrush(QColor(255, 0, 0, 50))
+                )
+                text_item = QGraphicsTextItem(label, item)
+                text_item.setDefaultTextColor(Qt.GlobalColor.darkCyan)
+                first_point = self.polygon_points[0]
+                text_item.setPos(item.mapFromScene(first_point))
+                
+                self.rectangles.append({
+                    "rect": item.boundingRect(),
+                    "label": label,
+                    "type": "freehand",
+                    "points": [(p.x(), p.y()) for p in self.polygon_points]
+                })
+                self.upload_screen.label_list.addItem(label)
+                self.history.append(self.rectangles.copy())
+            
+            self.polygon_points = []
+            self.current_polygon = None
+            self.start_pos = None
+            self.current_rect = None
+            return                       
         
         if not self.start_pos:
             super().mouseReleaseEvent(event)
@@ -120,7 +189,8 @@ class GraphicsView(QGraphicsView):
 
             self.rectangles.append({
                 "rect": self.current_rect.rect(),
-                "label": label if ok and label else ""
+                "label": label if ok and label else "",
+                "type": "bbox"
             })
 
             self.upload_screen.label_list.addItem(label)
@@ -134,17 +204,22 @@ class GraphicsView(QGraphicsView):
     def contextMenuEvent(self, event):
         item = self.itemAt(event.pos())
 
-        if isinstance(item, QGraphicsRectItem):
+        if isinstance(item, QGraphicsTextItem):
+            item = item.parentItem()
 
+        if isinstance(item, (QGraphicsRectItem, QGraphicsPolygonItem)):
             menu = QMenu(self)
             delete_action = menu.addAction("Delete")
-
             action = menu.exec(event.globalPos())
 
-            if action == delete_action:
+            if action and action == delete_action:
                 if hasattr(item, "label_item"):
                     self.scene().removeItem(item.label_item)
-                self.rectangles = [r for r in self.rectangles if r["rect"] != item.rect()]
+                
+                item_rect = item.boundingRect() if isinstance(item, QGraphicsPolygonItem) else item.rect()
+                self.rectangles = [r for r in self.rectangles 
+                                if not (abs(r["rect"].x() - item_rect.x()) < 0.01 and 
+                                        abs(r["rect"].y() - item_rect.y()) < 0.01)]
                 self.scene().removeItem(item)
                 self.upload_screen.label_list.clear()
                 for box_data in self.rectangles:
@@ -174,14 +249,27 @@ class GraphicsView(QGraphicsView):
             rect = box_data["rect"]
             label = box_data["label"]
             self.upload_screen.label_list.addItem(label)
-            new_box = self.scene().addRect(rect, QPen(Qt.GlobalColor.red, 2, Qt.PenStyle.DashLine))
-            new_box.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
-            new_box.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-            if label:
-                text_item = QGraphicsTextItem(label, new_box)
-                text_item.setDefaultTextColor(Qt.GlobalColor.darkCyan)
-                text_item.setPos(rect.x(), rect.y() - 20)
-                new_box.label_item = text_item
+            
+            if box_data.get("type") == "freehand":
+                points = [QPointF(x, y) for x, y in box_data["points"]]
+                new_box = self.scene().addPolygon(
+                    QPolygonF(points),
+                    QPen(Qt.GlobalColor.red, 2),
+                    QBrush(QColor(255, 0, 0, 50))
+                )
+                if label:
+                    text_item = QGraphicsTextItem(label, new_box)
+                    text_item.setDefaultTextColor(Qt.GlobalColor.darkCyan)
+                    text_item.setPos(new_box.mapFromScene(points[0]))
+            else:
+                new_box = self.scene().addRect(rect, QPen(Qt.GlobalColor.red, 2, Qt.PenStyle.DashLine))
+                new_box.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+                new_box.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+                if label:
+                    text_item = QGraphicsTextItem(label, new_box)
+                    text_item.setDefaultTextColor(Qt.GlobalColor.darkCyan)
+                    text_item.setPos(rect.x(), rect.y() - 20)
+                    new_box.label_item = text_item
 
     def redo(self):
         if not self.redo_stack:
@@ -203,36 +291,64 @@ class GraphicsView(QGraphicsView):
             rect = box_data["rect"]
             label = box_data["label"]
             self.upload_screen.label_list.addItem(label)
-            new_box = self.scene().addRect(rect, QPen(Qt.GlobalColor.red, 2, Qt.PenStyle.DashLine))
-            new_box.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
-            new_box.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-            if label:
-                text_item = QGraphicsTextItem(label, new_box)
-                text_item.setDefaultTextColor(Qt.GlobalColor.darkCyan)
-                text_item.setPos(rect.x(), rect.y() - 20)
-                new_box.label_item = text_item
+            
+            if box_data.get("type") == "freehand":
+                points = [QPointF(x, y) for x, y in box_data["points"]]
+                new_box = self.scene().addPolygon(
+                    QPolygonF(points),
+                    QPen(Qt.GlobalColor.red, 2),
+                    QBrush(QColor(255, 0, 0, 50))
+                )
+                if label:
+                    text_item = QGraphicsTextItem(label, new_box)
+                    text_item.setDefaultTextColor(Qt.GlobalColor.darkCyan)
+                    text_item.setPos(new_box.mapFromScene(points[0]))
+            else:
+                new_box = self.scene().addRect(rect, QPen(Qt.GlobalColor.red, 2, Qt.PenStyle.DashLine))
+                new_box.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+                new_box.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+                if label:
+                    text_item = QGraphicsTextItem(label, new_box)
+                    text_item.setDefaultTextColor(Qt.GlobalColor.darkCyan)
+                    text_item.setPos(rect.x(), rect.y() - 20)
+                    new_box.label_item = text_item
 
     
     def keyPressEvent(self, event):
+        
         if event.key() == Qt.Key.Key_Down:
-            count = self.upload_screen.list_widget.count()
-            index = self.upload_screen.list_widget.currentRow()
-            next_index = index + 1
-            if next_index >= count:
-                return
-            next_item = self.upload_screen.list_widget.item(next_index)
-            self.upload_screen.list_widget.setCurrentRow(next_index)
-            self.upload_screen.show_image(next_item)
+            if self.transform().m11() > self.min_zoom * 1.01:
+                self.verticalScrollBar().setValue(self.verticalScrollBar().value() + 20)
+            else:
+                count = self.upload_screen.list_widget.count()
+                index = self.upload_screen.list_widget.currentRow()
+                next_index = index + 1
+                if next_index >= count:
+                    return
+                next_item = self.upload_screen.list_widget.item(next_index)
+                self.upload_screen.list_widget.setCurrentRow(next_index)
+                self.upload_screen.show_image(next_item)
 
                     
         elif event.key() == Qt.Key.Key_Up:
-            index=self.upload_screen.list_widget.currentRow()
-            next_index=index-1
-            next_item=self.upload_screen.list_widget.item(next_index)
-            if next_index < 0:
-                return
-            self.upload_screen.list_widget.setCurrentRow(next_index)
-            self.upload_screen.show_image(next_item)
+            if self.transform().m11() > self.min_zoom * 1.01:
+                self.verticalScrollBar().setValue(self.verticalScrollBar().value() - 20)
+            else:
+                index = self.upload_screen.list_widget.currentRow()
+                next_index = index - 1
+                next_item = self.upload_screen.list_widget.item(next_index)
+                if next_index < 0:
+                    return
+                self.upload_screen.list_widget.setCurrentRow(next_index)
+                self.upload_screen.show_image(next_item)
+
+        elif event.key() == Qt.Key.Key_Right:
+            if self.transform().m11() > 1.0:
+                self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() + 20)
+
+        elif event.key() == Qt.Key.Key_Left:
+            if self.transform().m11() > 1.0:
+                self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - 20)
 
         elif event.key() == Qt.Key.Key_Delete or event.key() == Qt.Key.Key_Backspace:
             for item in self.scene().selectedItems():
@@ -251,11 +367,12 @@ class GraphicsView(QGraphicsView):
 
     def wheelEvent(self, event):
         
-        if event.angleDelta().y() > 0 :
-            self.scale(1.1,1.1)
+        if event.angleDelta().y() > 0:
+            self.scale(1.1, 1.1)
         
-        elif event.angleDelta().y() < 0 :
-            self.scale(0.9,0.9)
+        elif event.angleDelta().y() < 0:
+            if self.transform().m11() > self.min_zoom:
+                self.scale(0.9, 0.9)
         
 
 
@@ -323,12 +440,16 @@ class UploadScreen(QWidget):
 
         self.btn_select = QPushButton("🖱")
         self.btn_bbox =QPushButton("⬜")
+        self.btn_freehand = QPushButton("🖌")
+
 
         self.btn_select.setFixedSize(30,30)
         self.btn_bbox.setFixedSize(30,30)
+        self.btn_freehand.setFixedSize(30, 30)
 
         self.btn_select.clicked.connect(self.set_select)
         self.btn_bbox.clicked.connect(self.set_bbox)
+        self.btn_freehand.clicked.connect(self.set_freehand)
 
         self.btn_undo=QPushButton("↩")
         self.btn_redo = QPushButton("↪")
@@ -339,10 +460,17 @@ class UploadScreen(QWidget):
         self.btn_undo.clicked.connect(self.view.undo)
         self.btn_redo.clicked.connect(self.view.redo)
 
+        self.btn_undo.pressed.connect(lambda: self.btn_undo.setStyleSheet("background-color: rgba(0, 120, 255, 0.3);"))
+        self.btn_undo.released.connect(lambda: self.btn_undo.setStyleSheet(""))
+
+        self.btn_redo.pressed.connect(lambda: self.btn_redo.setStyleSheet("background-color: rgba(0, 120, 255, 0.3);"))
+        self.btn_redo.released.connect(lambda: self.btn_redo.setStyleSheet(""))
+
         self.toolbar_layout.addWidget(self.btn_select)
         self.toolbar_layout.addWidget(self.btn_bbox)
         self.toolbar_layout.addWidget(self.btn_undo)
         self.toolbar_layout.addWidget(self.btn_redo)
+        self.toolbar_layout.addWidget(self.btn_freehand)
 
 
 
@@ -422,13 +550,24 @@ class UploadScreen(QWidget):
 
     def set_select(self):
         self.view.current_tool = "select"
+        self.view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.btn_select.setStyleSheet("background-color: rgba(0, 120, 255, 0.3);")
         self.btn_bbox.setStyleSheet("")
+        self.btn_freehand.setStyleSheet("")
 
     def set_bbox(self):
         self.view.current_tool = "bbox"
         self.btn_bbox.setStyleSheet("background-color: rgba(0,120,255,0.3)")
         self.btn_select.setStyleSheet("")
+        self.btn_freehand.setStyleSheet("")
+        self.view.setDragMode(QGraphicsView.DragMode.NoDrag)
+
+    def set_freehand(self):
+        self.view.current_tool = "freehand"
+        self.btn_freehand.setStyleSheet("background-color: rgba(0, 120, 255, 0.3);")
+        self.btn_bbox.setStyleSheet("")
+        self.btn_select.setStyleSheet("")
+        self.view.setDragMode(QGraphicsView.DragMode.NoDrag)
 
 
     def show_image(self, item):
@@ -448,6 +587,7 @@ class UploadScreen(QWidget):
         new_scene = self.scene.addPixmap(pix_map)
         self.scene.setSceneRect(new_scene.boundingRect())
         self.view.fitInView(new_scene, Qt.AspectRatioMode.KeepAspectRatio)
+        self.view.min_zoom = self.view.transform().m11()
         
 
         if image_path in self.boxes:
@@ -455,15 +595,29 @@ class UploadScreen(QWidget):
                 rect = box_data["rect"]
                 label = box_data["label"]
                 self.label_list.addItem(label)
-                new_box = self.scene.addRect(rect, QPen(Qt.GlobalColor.red, 2, Qt.PenStyle.DashLine))
-                new_box.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
-                new_box.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-                if label:
-                    text_item = QGraphicsTextItem(label, new_box)
-                    text_item.setDefaultTextColor(Qt.GlobalColor.darkCyan)
-                    text_item.setPos(rect.x(), rect.y() - 20)
-                    new_box.label_item = text_item
-                self.view.rectangles.append({"rect": rect, "label": label})
+                
+                if box_data.get("type") == "freehand":
+                    points = [QPointF(x, y) for x, y in box_data["points"]]
+                    new_box = self.scene.addPolygon(
+                        QPolygonF(points),
+                        QPen(Qt.GlobalColor.red, 2),
+                        QBrush(QColor(255, 0, 0, 50))
+                    )
+                    if label:
+                        text_item = QGraphicsTextItem(label, new_box)
+                        text_item.setDefaultTextColor(Qt.GlobalColor.darkCyan)
+                        text_item.setPos(new_box.mapFromScene(points[0]))
+                else:
+                    new_box = self.scene.addRect(rect, QPen(Qt.GlobalColor.red, 2, Qt.PenStyle.DashLine))
+                    new_box.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+                    new_box.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+                    if label:
+                        text_item = QGraphicsTextItem(label, new_box)
+                        text_item.setDefaultTextColor(Qt.GlobalColor.darkCyan)
+                        text_item.setPos(rect.x(), rect.y() - 20)
+                        new_box.label_item = text_item
+                
+                self.view.rectangles.append(box_data)
         
         self.view.setFocus()
 
