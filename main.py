@@ -441,15 +441,18 @@ class UploadScreen(QWidget):
         self.btn_select = QPushButton("🖱")
         self.btn_bbox =QPushButton("⬜")
         self.btn_freehand = QPushButton("🖌")
+        self.btn_clear = QPushButton("⊘")
 
 
         self.btn_select.setFixedSize(30,30)
         self.btn_bbox.setFixedSize(30,30)
         self.btn_freehand.setFixedSize(30, 30)
+        self.btn_clear.setFixedSize(30,30)
 
         self.btn_select.clicked.connect(self.set_select)
         self.btn_bbox.clicked.connect(self.set_bbox)
         self.btn_freehand.clicked.connect(self.set_freehand)
+        self.btn_clear.clicked.connect(self.clear_annotations)
 
         self.btn_undo=QPushButton("↩")
         self.btn_redo = QPushButton("↪")
@@ -466,11 +469,15 @@ class UploadScreen(QWidget):
         self.btn_redo.pressed.connect(lambda: self.btn_redo.setStyleSheet("background-color: rgba(0, 120, 255, 0.3);"))
         self.btn_redo.released.connect(lambda: self.btn_redo.setStyleSheet(""))
 
+        self.btn_clear.pressed.connect(lambda: self.btn_clear.setStyleSheet("background-color: rgba(0, 120, 255, 0.3);"))
+        self.btn_clear.released.connect(lambda: self.btn_clear.setStyleSheet(""))
+
         self.toolbar_layout.addWidget(self.btn_select)
         self.toolbar_layout.addWidget(self.btn_bbox)
         self.toolbar_layout.addWidget(self.btn_undo)
         self.toolbar_layout.addWidget(self.btn_redo)
         self.toolbar_layout.addWidget(self.btn_freehand)
+        self.toolbar_layout.addWidget(self.btn_clear)
 
 
 
@@ -568,6 +575,19 @@ class UploadScreen(QWidget):
         self.btn_bbox.setStyleSheet("")
         self.btn_select.setStyleSheet("")
         self.view.setDragMode(QGraphicsView.DragMode.NoDrag)
+
+    def clear_annotations(self):
+        
+        self.view.rectangles = []
+        self.view.history = []
+        self.scene.clear()
+        self.label_list.clear()
+        
+        pixmap = QPixmap(self.current_image)
+        new_scene = self.scene.addPixmap(pixmap)
+        self.scene.setSceneRect(new_scene.boundingRect())
+        self.view.fitInView(new_scene, Qt.AspectRatioMode.KeepAspectRatio)
+        self.view.min_zoom = self.view.transform().m11()
 
 
     def show_image(self, item):
