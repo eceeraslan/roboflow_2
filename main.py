@@ -6,6 +6,9 @@ from PyQt6.QtGui import *
 import shutil
 import json
 import random
+from train_screen import TrainScreen
+import tempfile
+
 
 #WELCOME SCREEN
 class WelcomeScreen(QWidget):
@@ -378,13 +381,14 @@ class GraphicsView(QGraphicsView):
 
 #UPLOAD SCREEN
 class UploadScreen(QWidget):
-    def __init__(self):
+    def __init__(self,switch_training,switch_to_welcome):
         super().__init__()
 
         self.files=[]
         self.boxes={}
         self.boxes_history = {}
         self.current_image=None
+
 
         self.classes=[]
         
@@ -399,6 +403,13 @@ class UploadScreen(QWidget):
         self.button.clicked.connect(self.file_open)
         self.add_button = QPushButton("Add Class")
         self.add_button.clicked.connect(self.add_class)
+        
+        self.train_button =QPushButton(f"Export and Start training")
+        self.train_button.clicked.connect(switch_training)
+
+        self.back_to_welcome_button =QPushButton("<-")
+        self.back_to_welcome_button.setFixedWidth(40)
+        self.back_to_welcome_button.clicked.connect(switch_to_welcome)
         
         
        # SCROLL
@@ -488,6 +499,7 @@ class UploadScreen(QWidget):
         right_panel.addWidget(self.class_list)
         right_panel.addWidget(QLabel("Annotations:"))
         right_panel.addWidget(self.label_list)
+        right_panel.addWidget(self.train_button)
         
         #LAYOUT
         right_layout = QVBoxLayout()
@@ -495,9 +507,15 @@ class UploadScreen(QWidget):
         right_layout.addWidget(self.view, stretch=4)
         right_layout.addWidget(self.scroll, stretch=1)
         right_layout.addWidget(self.button)
+       
+
+        left_layout =QVBoxLayout()
+        left_layout.addWidget(self.back_to_welcome_button)
+        left_layout.addWidget(self.list_widget)
+        
         
         main_layout = QHBoxLayout()
-        main_layout.addWidget(self.list_widget)
+        main_layout.addLayout(left_layout)
         main_layout.addLayout(right_layout)
         main_layout.addWidget(self.toolbar)
         main_layout.addLayout(right_panel)
@@ -655,10 +673,12 @@ class MainWindow(QMainWindow):
         self.stack=QStackedWidget()
         
         self.welcome = WelcomeScreen(self.show_upload)
-        self.upload = UploadScreen()
+        self.upload = UploadScreen(self.show_train,self.show_welcome)
+        self.train = TrainScreen(self.upload,self.show_upload)
        
         self.stack.addWidget(self.welcome)
         self.stack.addWidget(self.upload)
+        self.stack.addWidget(self.train)
 
         self.setCentralWidget(self.stack)
     
@@ -666,6 +686,17 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(self.upload)
         self.file_menu.menuAction().setVisible(True)
         self.export_menu.menuAction().setVisible(True)
+
+    def show_train(self):
+        temp_dir = tempfile.mkdtemp()
+        self.export_to_folder(temp_dir)
+        self.train.temp_data_path = temp_dir
+        self.stack.setCurrentWidget(self.train)
+   
+
+    def show_welcome(self):
+        self.stack.setCurrentWidget(self.welcome)
+        
 
     def export_yolo(self):
 
@@ -761,6 +792,88 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self,"Success", "Export completed successfully!")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Export failed: {str(e)}")
+
+    
+    def export_to_folder(self,folder):
+        files = self.upload.files.copy()
+        random.shuffle(files)
+        total = len(files)
+        train_count = int(total * 0.7)
+        val_count = int(total * 0.2)
+        train_files = files[:train_count]
+        val_files = files[train_count:train_count + val_count]
+
+        
+        for split in["train","val","test"]:
+            os.makedirs(os.path.join(folder, split, "images"), exist_ok=True)
+            os.makedirs(os.path.join(folder, split, "labels"), exist_ok=True)
+
+        if self.upload.current_image:
+            self.upload.boxes[self.upload.current_image] = self.upload.view.rectangles.copy()
+
+        all_labels = []
+        for box_list in self.upload.boxes.values():
+            for box_data in box_list:
+                if box_data["label"] and box_data["label"] not in all_labels:
+                    all_labels.append(box_data["label"])
+
+        for image_path, box_list in self.upload.boxes.items():
+            if not box_list:
+                continue
+
+            if image_path in train_files:
+                split = "train"
+            elif image_path in val_files:
+                split = "val"
+            else:
+                split = "test"
+
+            images_dir = os.path.join(folder, split, "images")
+            labels_dir = os.path.join(folder, split, "labels")
+
+            image_name = os.path.basename(image_path)
+            shutil.copy(image_path, os.path.join(images_dir, image_name))
+
+            img = QPixmap(image_path)
+            img_width = img.width()
+            img_height = img.height()
+
+            txt_name = os.path.splitext(image_name)[0] + ".txt"
+            txt_path = os.path.join(labels_dir, txt_name)
+
+            with open(txt_path, "w") as f:
+                for box_data in box_list:
+                    rect = box_data["rect"]
+                    label = box_data["label"]
+
+                    if not label:
+                        continue
+
+                    x = rect.x()
+                    y = rect.y()
+                    w = rect.width()
+                    h = rect.height()
+
+                    cx = (x + w / 2) / img_width
+                    cy = (y + h / 2) / img_height
+                    nw = w / img_width
+                    nh = h / img_height
+
+                    class_id = all_labels.index(label)
+                    f.write(f"{class_id} {cx:.6f} {cy:.6f} {nw:.6f} {nh:.6f}\n")
+
+        classes_path = os.path.join(folder, "classes.txt")
+        with open(classes_path, "w") as f:
+            for label in all_labels:
+                f.write(label + "\n")
+
+        yaml_path = os.path.join(folder, "data.yaml")
+        with open(yaml_path, "w") as f:
+            f.write(f"nc: {len(all_labels)}\n")
+            f.write(f"names: {all_labels}\n")
+            f.write(f"train: train/images/\n")
+            f.write(f"val: val/images/\n")
+            f.write(f"test: test/images/\n")
 
     
     def save_project(self):
