@@ -145,6 +145,7 @@ class GraphicsView(QGraphicsView):
                     QPen(Qt.GlobalColor.red, 2),
                     QBrush(QColor(255, 0, 0, 50))
                 )
+                item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
                 text_item = QGraphicsTextItem(label, item)
                 text_item.setDefaultTextColor(Qt.GlobalColor.darkCyan)
                 first_point = self.polygon_points[0]
@@ -355,12 +356,21 @@ class GraphicsView(QGraphicsView):
 
         elif event.key() == Qt.Key.Key_Delete or event.key() == Qt.Key.Key_Backspace:
             for item in self.scene().selectedItems():
+                if isinstance(item, QGraphicsTextItem):
+                    continue
                 self.scene().removeItem(item)
-                self.rectangles = [r for r in self.rectangles if r["rect"] != item.rect()]
+                if isinstance(item, QGraphicsPolygonItem):
+                    item_rect = item.boundingRect()
+                else:
+                    item_rect = item.rect()
+                self.rectangles = [r for r in self.rectangles if not (
+                    abs(r["rect"].x() - item_rect.x()) < 0.01 and
+                    abs(r["rect"].y() - item_rect.y()) < 0.01
+                )]
             self.upload_screen.label_list.clear()
             for box_data in self.rectangles:
                 self.upload_screen.label_list.addItem(box_data["label"])
-
+        
         elif event.key() == Qt.Key.Key_Z and event.modifiers() == Qt.KeyboardModifier.ControlModifier:
             self.undo()
 
@@ -404,7 +414,7 @@ class UploadScreen(QWidget):
         self.add_button = QPushButton("Add Class")
         self.add_button.clicked.connect(self.add_class)
         
-        self.train_button =QPushButton(f"Export and Start training")
+        self.train_button =QPushButton(f"Start Training")
         self.train_button.clicked.connect(switch_training)
 
         self.back_to_welcome_button =QPushButton("<-")
@@ -674,7 +684,7 @@ class MainWindow(QMainWindow):
         
         self.welcome = WelcomeScreen(self.show_upload)
         self.upload = UploadScreen(self.show_train,self.show_welcome)
-        self.train = TrainScreen(self.upload,self.show_upload)
+        self.train = TrainScreen(self.upload,self.show_upload,self.export_to_folder)
        
         self.stack.addWidget(self.welcome)
         self.stack.addWidget(self.upload)
@@ -688,9 +698,8 @@ class MainWindow(QMainWindow):
         self.export_menu.menuAction().setVisible(True)
 
     def show_train(self):
-        temp_dir = tempfile.mkdtemp()
-        self.export_to_folder(temp_dir)
-        self.train.temp_data_path = temp_dir
+        self.file_menu.menuAction().setVisible(False)
+        self.export_menu.menuAction().setVisible(False)
         self.stack.setCurrentWidget(self.train)
    
 
@@ -756,24 +765,25 @@ class MainWindow(QMainWindow):
 
             with open(txt_path, "w") as f:
                 for box_data in box_list:
-                    rect = box_data["rect"]
                     label = box_data["label"]
-
                     if not label:
                         continue
-
-                    x = rect.x()
-                    y = rect.y()
-                    w = rect.width()
-                    h = rect.height()
-
-                    cx = (x + w / 2) / img_width
-                    cy = (y + h / 2) / img_height
-                    nw = w / img_width
-                    nh = h / img_height
-
                     class_id = all_labels.index(label)
-                    f.write(f"{class_id} {cx:.6f} {cy:.6f} {nw:.6f} {nh:.6f}\n")
+
+                    if box_data.get("type") == "freehand":
+                        points = box_data.get("points", [])
+                        coords = ""
+                        for x, y in points:
+                            coords += f"{x/img_width:.6f} {y/img_height:.6f} "
+                        f.write(f"{class_id} {coords.strip()}\n")
+                    else:
+                        rect = box_data["rect"]
+                        x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
+                        cx = (x + w/2) / img_width
+                        cy = (y + h/2) / img_height
+                        nw = w / img_width
+                        nh = h / img_height
+                        f.write(f"{class_id} {cx:.6f} {cy:.6f} {nw:.6f} {nh:.6f}\n")
 
         classes_path = os.path.join(folder, "classes.txt")
         with open(classes_path, "w") as f:
@@ -843,24 +853,25 @@ class MainWindow(QMainWindow):
 
             with open(txt_path, "w") as f:
                 for box_data in box_list:
-                    rect = box_data["rect"]
                     label = box_data["label"]
-
                     if not label:
                         continue
-
-                    x = rect.x()
-                    y = rect.y()
-                    w = rect.width()
-                    h = rect.height()
-
-                    cx = (x + w / 2) / img_width
-                    cy = (y + h / 2) / img_height
-                    nw = w / img_width
-                    nh = h / img_height
-
                     class_id = all_labels.index(label)
-                    f.write(f"{class_id} {cx:.6f} {cy:.6f} {nw:.6f} {nh:.6f}\n")
+
+                    if box_data.get("type") == "freehand":
+                        points = box_data.get("points", [])
+                        coords = ""
+                        for x, y in points:
+                            coords += f"{x/img_width:.6f} {y/img_height:.6f} "
+                        f.write(f"{class_id} {coords.strip()}\n")
+                    else:
+                        rect = box_data["rect"]
+                        x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
+                        cx = (x + w/2) / img_width
+                        cy = (y + h/2) / img_height
+                        nw = w / img_width
+                        nh = h / img_height
+                        f.write(f"{class_id} {cx:.6f} {cy:.6f} {nw:.6f} {nh:.6f}\n")
 
         classes_path = os.path.join(folder, "classes.txt")
         with open(classes_path, "w") as f:
@@ -896,7 +907,9 @@ class MainWindow(QMainWindow):
                     "y": rect.y(),
                     "w": rect.width(),
                     "h": rect.height(),
-                    "label": box_data["label"]
+                    "label": box_data["label"],
+                    "type": box_data.get("type", "bbox"),
+                    "points": box_data.get("points", [])
                 })
         with open(file_path,"w") as f:
             json.dump(data,f)
@@ -918,7 +931,9 @@ class MainWindow(QMainWindow):
                 rect = QRectF(box_data["x"], box_data["y"], box_data["w"], box_data["h"])
                 self.upload.boxes[image_path].append({
                     "rect": rect,
-                    "label": box_data["label"]
+                    "label": box_data["label"],
+                    "type": box_data.get("type", "bbox"),
+                    "points": box_data.get("points", [])
                 })
 
         self.upload.files = data["files"]
