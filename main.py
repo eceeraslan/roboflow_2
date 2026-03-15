@@ -8,6 +8,9 @@ import json
 import random
 from train_screen import TrainScreen
 import tempfile
+import qtawesome as qta
+import ctypes
+ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("roboflow2")
 
 
 #WELCOME SCREEN
@@ -16,17 +19,26 @@ class WelcomeScreen(QWidget):
         super().__init__()
 
         #labels
-        self.label = QLabel("Annotate your images quickly and easily")
+        self.title_label =QLabel("TrainFlow")
+        self.title_label.setObjectName("titleLabel")
+        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        self.label = QLabel("Annotate, train, and deploy — all in one place.")
+        self.label.setObjectName("subtitleLabel")
         self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         #buttons
         self.button = QPushButton("Get Started")
+        self.button.setFixedSize(220, 48)
         self.button.clicked.connect(switch_screen)
+        self.button.setObjectName("welcomeButton")
+    
         
         #layout
         self.layout = QVBoxLayout()
+        self.layout.addWidget(self.title_label)
         self.layout.addWidget(self.label)
-        self.layout.addWidget(self.button)
+        self.layout.addWidget(self.button, alignment=Qt.AlignmentFlag.AlignCenter)
         self.layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setLayout(self.layout)
 
@@ -131,7 +143,7 @@ class GraphicsView(QGraphicsView):
                 self.scene().removeItem(self.current_polygon)
             
             if not self.upload_screen.classes:
-                QMessageBox.warning(self, "Uyarı", "First add class please!")
+                QMessageBox.warning(self, "Warning", "First add class please!")
                 self.polygon_points = []
                 self.current_polygon = None
                 return
@@ -176,7 +188,7 @@ class GraphicsView(QGraphicsView):
             self.current_rect.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
 
             if not self.upload_screen.classes:
-                QMessageBox.warning(self, "Uyarı", "First add class please!")
+                QMessageBox.warning(self, "Warning", "First add class please!")
                 self.scene().removeItem(self.current_rect)
                 self.current_rect = None
                 self.start_pos = None
@@ -404,10 +416,9 @@ class UploadScreen(QWidget):
         
         #labels
         self.label= QLabel("Upload your images here")
+        self.label.setObjectName("uploadHeader")
         self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label1 = QLabel(f"Use your own data to start annotating\nUpload and label your images")
-        self.label1.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-        
+
         #buttons
         self.button = QPushButton("Select Images")
         self.button.clicked.connect(self.file_open)
@@ -417,24 +428,11 @@ class UploadScreen(QWidget):
         self.train_button =QPushButton(f"Start Training")
         self.train_button.clicked.connect(switch_training)
 
-        self.back_to_welcome_button =QPushButton("<-")
-        self.back_to_welcome_button.setFixedWidth(40)
+        self.back_to_welcome_button =QPushButton("Back")
+        self.back_to_welcome_button.setFixedWidth(55)
         self.back_to_welcome_button.clicked.connect(switch_to_welcome)
         
         
-       # SCROLL
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-
-        self.scroll_widget = QWidget()
-        self.scroll_layout = QVBoxLayout(self.scroll_widget)
-        self.scroll_layout.setContentsMargins(10, 10, 10, 10)
-
-        self.scroll_layout.addWidget(self.label1)
-        self.scroll.setWidget(self.scroll_widget)
-        self.scroll.setFrameShape(QFrame.Shape.Box)
-
-
         self.list_widget=QListWidget()
         self.list_widget.setIconSize(QSize(80,80))
         self.list_widget.setFixedWidth(130)
@@ -443,10 +441,10 @@ class UploadScreen(QWidget):
 
         #label list area
         self.label_list=QListWidget()
-        self.label_list.setFixedWidth(180)
+        self.label_list.setFixedWidth(200)
         
         self.class_list = QListWidget()
-        self.class_list.setFixedWidth(180)
+        self.class_list.setFixedWidth(200)
         
         #image view area
         self.scene = QGraphicsScene()
@@ -455,80 +453,107 @@ class UploadScreen(QWidget):
 
         #toolbar
         self.toolbar = QWidget()
+        self.toolbar.setObjectName("toolbar")
         self.toolbar_layout =QVBoxLayout(self.toolbar)
-        self.toolbar_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.toolbar.setFixedWidth(40)
+        self.toolbar_layout.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+        self.toolbar_layout.setSpacing(4)
+        self.toolbar_layout.setContentsMargins(1,1,1,1)
+        self.toolbar.setContentsMargins(1, 3, 1, 3)
+        self.toolbar.setFixedWidth(48)
+        self.toolbar.setFixedHeight(272)
+        
 
-        self.btn_select = QPushButton("🖱")
-        self.btn_bbox =QPushButton("⬜")
-        self.btn_freehand = QPushButton("🖌")
-        self.btn_clear = QPushButton("⊘")
+        self.btn_select = QPushButton()
+        self.btn_bbox =QPushButton()
+        self.btn_freehand = QPushButton()
+        self.btn_clear = QPushButton()
 
 
-        self.btn_select.setFixedSize(30,30)
-        self.btn_bbox.setFixedSize(30,30)
-        self.btn_freehand.setFixedSize(30, 30)
-        self.btn_clear.setFixedSize(30,30)
+        self.btn_select.setFixedSize(36,36)
+        self.btn_bbox.setFixedSize(36,36)
+        self.btn_freehand.setFixedSize(36,36)
+        self.btn_clear.setFixedSize(36,36)
 
         self.btn_select.clicked.connect(self.set_select)
         self.btn_bbox.clicked.connect(self.set_bbox)
         self.btn_freehand.clicked.connect(self.set_freehand)
         self.btn_clear.clicked.connect(self.clear_annotations)
 
-        self.btn_undo=QPushButton("↩")
-        self.btn_redo = QPushButton("↪")
+        self.btn_undo=QPushButton()
+        self.btn_redo = QPushButton()
         
-        self.btn_undo.setFixedSize(30,30)
-        self.btn_redo.setFixedSize(30,30)
+        self.btn_undo.setFixedSize(36,36)
+        self.btn_redo.setFixedSize(36,36)
         
         self.btn_undo.clicked.connect(self.view.undo)
         self.btn_redo.clicked.connect(self.view.redo)
+        self.btn_select.setIcon(qta.icon("fa5s.mouse-pointer", color="#0a2a3d"))
+        self.btn_bbox.setIcon(qta.icon("fa5s.vector-square", color="#0a2a3d"))
+        self.btn_freehand.setIcon(qta.icon("fa5s.paint-brush", color="#0a2a3d"))
+        self.btn_clear.setIcon(qta.icon("fa5s.trash", color="#0a2a3d"))
+        self.btn_undo.setIcon(qta.icon("fa5s.undo", color="#0a2a3d"))
+        self.btn_redo.setIcon(qta.icon("fa5s.redo", color="#0a2a3d"))
 
-        self.btn_undo.pressed.connect(lambda: self.btn_undo.setStyleSheet("background-color: rgba(0, 120, 255, 0.3);"))
-        self.btn_undo.released.connect(lambda: self.btn_undo.setStyleSheet(""))
-
-        self.btn_redo.pressed.connect(lambda: self.btn_redo.setStyleSheet("background-color: rgba(0, 120, 255, 0.3);"))
-        self.btn_redo.released.connect(lambda: self.btn_redo.setStyleSheet(""))
-
-        self.btn_clear.pressed.connect(lambda: self.btn_clear.setStyleSheet("background-color: rgba(0, 120, 255, 0.3);"))
-        self.btn_clear.released.connect(lambda: self.btn_clear.setStyleSheet(""))
+        
+        self.btn_select.setCheckable(True)
+        self.btn_bbox.setCheckable(True)
+        self.btn_freehand.setCheckable(True)
 
         self.toolbar_layout.addWidget(self.btn_select)
+        self.toolbar_layout.addWidget(self.make_separator())
         self.toolbar_layout.addWidget(self.btn_bbox)
-        self.toolbar_layout.addWidget(self.btn_undo)
-        self.toolbar_layout.addWidget(self.btn_redo)
+        self.toolbar_layout.addWidget(self.make_separator())
         self.toolbar_layout.addWidget(self.btn_freehand)
+        self.toolbar_layout.addWidget(self.make_separator())
+        self.toolbar_layout.addWidget(self.btn_undo)
+        self.toolbar_layout.addWidget(self.make_separator())
+        self.toolbar_layout.addWidget(self.btn_redo)
+        self.toolbar_layout.addWidget(self.make_separator())
         self.toolbar_layout.addWidget(self.btn_clear)
 
 
 
         #right panel
-        right_panel = QVBoxLayout()
-        right_panel.addWidget(QLabel("Classes:"))
-        right_panel.addWidget(self.add_button)
-        right_panel.addWidget(self.class_list)
-        right_panel.addWidget(QLabel("Annotations:"))
-        right_panel.addWidget(self.label_list)
-        right_panel.addWidget(self.train_button)
+        right_panel = QWidget()
+        right_panel.setObjectName("rightPanel")
+        right_panel.setFixedWidth(210)
+        right_panel_layout = QVBoxLayout(right_panel)
+        classes_label = QLabel("Classes")
+        classes_label.setObjectName("panelHeader")
+        right_panel_layout.addWidget(classes_label)
+        annotations_label = QLabel("Annotations")
+        annotations_label.setObjectName("panelHeader")
+        right_panel_layout.addWidget(self.add_button)
+        right_panel_layout.addWidget(self.class_list)
+        right_panel_layout.addWidget(annotations_label)
+        right_panel_layout.addWidget(self.label_list)
+        right_panel_layout.addWidget(self.train_button)
         
         #LAYOUT
         right_layout = QVBoxLayout()
         right_layout.addWidget(self.label)
         right_layout.addWidget(self.view, stretch=4)
-        right_layout.addWidget(self.scroll, stretch=1)
+        right_layout.addSpacing(8)
         right_layout.addWidget(self.button)
+        right_layout.setContentsMargins(8,8,8,8)
        
 
-        left_layout =QVBoxLayout()
+        left_panel = QWidget()
+        left_panel.setObjectName("leftPanel")
+        left_panel.setFixedWidth(140)
+        
+        left_layout = QVBoxLayout(left_panel)
         left_layout.addWidget(self.back_to_welcome_button)
         left_layout.addWidget(self.list_widget)
         
         
         main_layout = QHBoxLayout()
-        main_layout.addLayout(left_layout)
+        main_layout.setSpacing(4)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(left_panel)
         main_layout.addLayout(right_layout)
-        main_layout.addWidget(self.toolbar)
-        main_layout.addLayout(right_panel)
+        main_layout.addWidget(self.toolbar,alignment=Qt.AlignmentFlag.AlignVCenter)
+        main_layout.addWidget(right_panel)
 
         self.setLayout(main_layout)
 
@@ -556,6 +581,14 @@ class UploadScreen(QWidget):
             self.list_widget.setCurrentRow(0)
             QTimer.singleShot(0, lambda: self.show_image(self.list_widget.item(0)))
 
+    def make_separator(self):
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setFixedHeight(1)
+        line.setContentsMargins(4, 0, 4, 0)
+        line.setStyleSheet("background-color: #6abfe8; margin: 0px 6px;")
+        return line
+
         
     def add_class(self):
         label, ok = QInputDialog.getText(self, "Label", "Enter Label:")
@@ -566,16 +599,22 @@ class UploadScreen(QWidget):
             item =QListWidgetItem(self.class_list)
             widget=QWidget()
             layout=QHBoxLayout(widget)
+     
 
             text_label =QLabel(label)
-            delete_btn =QPushButton("x")
-            delete_btn.setFixedSize(20,20)
+            text_label.setMaximumWidth(150)
+            text_label.setToolTip(label)
+            
+            delete_btn =QPushButton()
+            delete_btn.setIcon(qta.icon("fa5s.times", color="#0a2a3d"))
+            delete_btn.setFixedSize(15,15)
             delete_btn.clicked.connect(lambda: self.remove_class(item,label))
 
-            layout.addWidget(text_label)
+            layout.addWidget(text_label,stretch=1)
+            layout.addStretch()
             layout.addWidget(delete_btn)
 
-            item.setSizeHint(widget.sizeHint())
+            item.setSizeHint(QSize(200,50))
             self.class_list.setItemWidget(item,widget)
 
     def remove_class(self,item,label):
@@ -586,22 +625,21 @@ class UploadScreen(QWidget):
     def set_select(self):
         self.view.current_tool = "select"
         self.view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
-        self.btn_select.setStyleSheet("background-color: rgba(0, 120, 255, 0.3);")
-        self.btn_bbox.setStyleSheet("")
-        self.btn_freehand.setStyleSheet("")
-
+        self.btn_select.setChecked(True)
+        self.btn_bbox.setChecked(False)
+        self.btn_freehand.setChecked(False)
     def set_bbox(self):
         self.view.current_tool = "bbox"
-        self.btn_bbox.setStyleSheet("background-color: rgba(0,120,255,0.3)")
-        self.btn_select.setStyleSheet("")
-        self.btn_freehand.setStyleSheet("")
+        self.btn_bbox.setChecked(True)
+        self.btn_select.setChecked(False)
+        self.btn_freehand.setChecked(False)
         self.view.setDragMode(QGraphicsView.DragMode.NoDrag)
 
     def set_freehand(self):
         self.view.current_tool = "freehand"
-        self.btn_freehand.setStyleSheet("background-color: rgba(0, 120, 255, 0.3);")
-        self.btn_bbox.setStyleSheet("")
-        self.btn_select.setStyleSheet("")
+        self.btn_freehand.setChecked(True)
+        self.btn_bbox.setChecked(False)
+        self.btn_select.setChecked(False)
         self.view.setDragMode(QGraphicsView.DragMode.NoDrag)
 
     def clear_annotations(self):
@@ -616,6 +654,7 @@ class UploadScreen(QWidget):
         self.scene.setSceneRect(new_scene.boundingRect())
         self.view.fitInView(new_scene, Qt.AspectRatioMode.KeepAspectRatio)
         self.view.min_zoom = self.view.transform().m11()
+    
 
 
     def show_image(self, item):
@@ -674,11 +713,13 @@ class UploadScreen(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Roboflow 2")
+        self.setWindowTitle("TrainFlow")
         self.setGeometry(300,50,600,800)
         self.setFixedSize(1000,750)
         
         self.create_menu()
+
+        self.setWindowIcon(QIcon("icons/window_icon.ico"))
         
         self.stack=QStackedWidget()
         
@@ -705,6 +746,8 @@ class MainWindow(QMainWindow):
 
     def show_welcome(self):
         self.stack.setCurrentWidget(self.welcome)
+        self.file_menu.menuAction().setVisible(False)
+        self.export_menu.menuAction().setVisible(False)
         
 
     def export_yolo(self):
@@ -968,7 +1011,7 @@ class MainWindow(QMainWindow):
         load_action =QAction("Load",self)
         load_action.triggered.connect(self.load_project)
         self.file_menu.addAction(load_action)
-
+        self.file_menu.addSeparator()
         self.export_menu=self.menu_bar.addMenu("Export")
         self.export_menu.menuAction().setVisible(False)
 
@@ -980,6 +1023,11 @@ class MainWindow(QMainWindow):
 
 if __name__ =="__main__":
     app = QApplication(sys.argv)
+
+    with open("style.qss","r") as f:
+        app.setStyleSheet(f.read())
+
+
     window=MainWindow()
     window.show()
 

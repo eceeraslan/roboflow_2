@@ -17,13 +17,21 @@ class TrainScreen(QWidget):
         self.data_path=None
         self.export_callback = export_callback
 
-        self.back_to_upload_button = QPushButton("<-")
+        self.back_to_upload_button = QPushButton("Back")
         self.back_to_upload_button.clicked.connect(self.switch_to_upload)
-        self.back_to_upload_button.setFixedWidth(40)
+        self.back_to_upload_button.setFixedWidth(55)
 
         self.left_layout = QVBoxLayout()
+        self.left_layout.setContentsMargins(8, 8, 8, 8)
+        self.left_layout.setSpacing(3)
 
         self.left_layout.addWidget(self.back_to_upload_button)
+
+        left_widget = QWidget()
+        left_widget.setObjectName("trainLeftPanel")
+        left_widget.setFixedWidth(200)
+        left_widget.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        left_widget.setLayout(self.left_layout)
 
         self.data_button =QPushButton("Select your data")
         self.data_menu = QMenu()
@@ -93,6 +101,14 @@ class TrainScreen(QWidget):
         self.left_layout.addWidget(self.cb_hsv)
         self.left_layout.addWidget(self.cb_scale)
         self.left_layout.addWidget(self.cb_translate)
+        
+        self.model_label.setObjectName("trainLabel")
+        self.epoch_label.setObjectName("trainLabel")
+        self.batch_label.setObjectName("trainLabel")
+        self.width_label.setObjectName("trainLabel")
+        self.height_label.setObjectName("trainLabel")
+        self.lr_label.setObjectName("trainLabel")
+        self.aug_label.setObjectName("sectionLabel")
 
 
 
@@ -102,11 +118,10 @@ class TrainScreen(QWidget):
 
         self.open_results_button = QPushButton("📂 Open Results")
         self.open_results_button.clicked.connect(self.open_results)
-        self.left_layout.addStretch()
+
         self.left_layout.addWidget(self.open_results_button)
         self.open_results_button.setVisible(False)
 
-        self.left_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
         self.right_layout=QVBoxLayout()
 
@@ -131,8 +146,9 @@ class TrainScreen(QWidget):
 
 
         self.main_train_layout =QHBoxLayout()
-        self.main_train_layout.addLayout(self.left_layout)
+        self.main_train_layout.addWidget(left_widget)
         self.main_train_layout.addLayout(self.right_layout)
+        
 
         self.setLayout(self.main_train_layout)
 
